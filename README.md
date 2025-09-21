@@ -2,6 +2,31 @@
 
 A modern, scalable NestJS API with **runtime reflection**, **metadata-driven querying**, and **advanced filtering capabilities**.
 
+## 📋 Table of Contents
+
+- [Features](#-features)
+- [Architecture](#️-architecture)
+- [Dynamic Query Builder](#-dynamic-query-builder)
+  - [Frontend-Friendly API](#frontend-friendly-api)
+  - [Key Features](#key-features)
+  - [Postman Testing](#postman-testing)
+  - [Dynamic Query Builder Implementation](#dynamic-query-builder-implementation)
+  - [Query Examples](#query-examples)
+  - [Benefits & Use Cases](#benefits--use-cases)
+  - [How It Works](#how-it-works)
+  - [Architecture Components](#architecture-components)
+  - [Benefits](#benefits)
+  - [Testing & Validation](#testing--validation)
+  - [Supported Endpoints](#supported-endpoints)
+  - [Response Format](#response-format)
+  - [Future Roadmap](#future-roadmap)
+- [Quick Start](#-quick-start)
+- [API Documentation](#-api-documentation)
+- [Testing](#-testing)
+- [Development](#-development)
+- [Contributing](#-contributing)
+- [License](#-license)
+
 ## ✨ Features
 
 - 🔍 **Runtime Reflection** - No decorators needed on entities
@@ -62,6 +87,428 @@ A modern, scalable NestJS API with **runtime reflection**, **metadata-driven que
 - **L**iskov Substitution: Services can be substituted with base types
 - **I**nterface Segregation: Only expose needed interfaces
 - **D**ependency Inversion: Depend on abstractions, not concretions
+
+## 🚀 Dynamic Query Builder
+
+The Dynamic Query Builder is a powerful feature that allows frontend applications to query data using simple URL parameters. It provides a flexible, type-safe way to filter, search, sort, and paginate data without writing custom backend code.
+
+### Key Benefits
+
+- 🎯 **Frontend-Friendly** - Simple URL parameters for complex queries
+- 🔒 **Type-Safe** - Runtime validation using TypeORM metadata
+- ⚡ **Performance** - Optimized queries with proper indexing
+- 🛡️ **Secure** - Field validation prevents SQL injection
+- 🔧 **Flexible** - Support for complex query patterns
+- 📊 **Consistent** - Standardized API across all endpoints
+
+### How It Works
+
+1. **Query Parsing** - Converts URL parameters to structured query options
+2. **Field Validation** - Uses runtime reflection to validate fields against entity metadata
+3. **Query Building** - Constructs TypeORM queries dynamically
+4. **Execution** - Executes queries with proper error handling and logging
+
+### Example Usage
+
+```http
+# Simple pagination
+GET /users?page=1&limit=10
+
+# Search with filters
+GET /users?search=john&filter=role:eq:admin&sort=createdAt:DESC
+
+# Complex filtering
+GET /users?filter=isActive:eq:true&filter=role:in:admin,user&sort=email:ASC
+```
+
+### Frontend-Friendly API
+
+The API includes a powerful Dynamic Query Builder that makes it easy to query data from frontend applications:
+
+```http
+# Simple queries
+GET /users?page=1&limit=10
+GET /users?search=john
+GET /users?filter=role:eq:admin
+
+# Complex queries
+GET /users?search=john&filter=isActive:eq:true&sort=createdAt:DESC&page=1&limit=5
+```
+
+### Key Features
+
+- ✅ **Simple Query Parameters** - Easy to use in URLs
+- ✅ **Powerful Filtering** - 10+ filter operators
+- ✅ **Full-Text Search** - Search across multiple fields
+- ✅ **Flexible Sorting** - Sort by any field
+- ✅ **Pagination** - Built-in pagination support
+- ✅ **Field Selection** - Choose which fields to return
+- ✅ **Validation** - Automatic field validation
+
+### Postman Testing
+
+The project includes a comprehensive Postman collection for testing all API endpoints:
+
+#### Collection Features
+
+- ✅ **Complete API Coverage** - All endpoints and methods
+- ✅ **Dynamic Query Examples** - Pre-configured query examples
+- ✅ **Authentication** - JWT token handling
+- ✅ **Environment Variables** - Easy configuration
+- ✅ **Test Scripts** - Automated response validation
+
+#### Import Instructions
+
+1. Open Postman
+2. Import `docs/postman/API_Collection.json`
+3. Import `docs/postman/API_Environment.json`
+4. Set environment variables in Postman
+5. Start testing!
+
+#### Environment Variables
+
+```json
+{
+  "baseUrl": "http://localhost:4000",
+  "accessToken": "{{jwt_token}}",
+  "refreshToken": "{{refresh_token}}"
+}
+```
+
+#### Sample Requests
+
+The collection includes pre-configured requests for:
+
+- User registration and login
+- Dynamic query examples
+- CRUD operations
+- Authentication flows
+- Error handling scenarios
+
+### Dynamic Query Builder Implementation
+
+The Dynamic Query Builder is implemented using a modular architecture:
+
+#### Core Services
+
+1. **`DynamicQueryBuilderService`**
+   - Parses URL query parameters
+   - Converts to structured query options
+   - Handles parameter validation
+
+2. **`AdvancedQueryBuilderService`**
+   - Builds TypeORM queries from options
+   - Applies filters, sorting, pagination
+   - Handles complex query patterns
+
+3. **`ReflectionService`**
+   - Provides runtime field validation
+   - Uses TypeORM metadata for validation
+   - Ensures query safety
+
+4. **`BaseService`**
+   - Integrates query builder with CRUD operations
+   - Provides consistent API interface
+   - Handles error cases
+
+#### Query Flow
+
+```
+URL Parameters → DynamicQueryBuilder → AdvancedQueryBuilder → TypeORM → Database
+     ↓                    ↓                      ↓              ↓
+Validation → Field Validation → Query Building → Execution → Results
+```
+
+#### Example Implementation
+
+```typescript
+// In your service
+async findAll(query: any) {
+  const options = this.dynamicQueryBuilder.parseQuery(query);
+  return await this.findWithPagination(options);
+}
+
+// Usage in controller
+@Get()
+async findAll(@Query() query: any) {
+  return await this.usersService.findAll(query);
+}
+```
+
+### Query Examples
+
+#### Basic Queries
+
+```http
+# Get all users with pagination
+GET /users?page=1&limit=10
+
+# Search users by name or email
+GET /users?search=john
+
+# Filter by role
+GET /users?filter=role:eq:admin
+```
+
+#### Advanced Queries
+
+```http
+# Complex filtering with multiple conditions
+GET /users?filter=role:eq:admin&filter=isActive:eq:true
+
+# Search with filters and sorting
+GET /users?search=john&filter=role:eq:user&sort=createdAt:DESC
+
+# Date range filtering
+GET /users?filter=createdAt:between:2024-01-01,2024-12-31
+
+# Multiple sort fields
+GET /users?sort=role:ASC&sort=createdAt:DESC
+
+# Field selection
+GET /users?select=id,email,displayName&filter=isActive:eq:true
+```
+
+#### Filter Operators
+
+- `eq` - Equals
+- `ne` - Not equals
+- `gt` - Greater than
+- `gte` - Greater than or equal
+- `lt` - Less than
+- `lte` - Less than or equal
+- `in` - In array
+- `nin` - Not in array
+- `like` - Like pattern
+- `ilike` - Case insensitive like
+- `between` - Between two values
+- `isNull` - Is null
+- `isNotNull` - Is not null
+- `contains` - Contains substring
+- `startsWith` - Starts with
+- `endsWith` - Ends with
+
+### Benefits & Use Cases
+
+#### Frontend Development
+
+- **Data Tables** - Easy sorting, filtering, and pagination
+- **Search Functionality** - Full-text search across multiple fields
+- **Admin Panels** - Complex filtering and data management
+- **Mobile Apps** - Efficient data loading with pagination
+
+#### Backend Development
+
+- **API Consistency** - Standardized query interface across all endpoints
+- **Performance** - Optimized queries with proper indexing
+- **Security** - Field validation prevents SQL injection
+- **Maintainability** - Clean separation of concerns
+
+#### Business Logic
+
+- **Reporting** - Flexible data aggregation and filtering
+- **Analytics** - Complex query patterns for data analysis
+- **User Management** - Advanced user filtering and search
+- **Content Management** - Dynamic content querying
+
+### How It Works
+
+The Dynamic Query Builder uses a sophisticated architecture:
+
+1. **Query Parsing** - Converts URL parameters to structured query options
+2. **Field Validation** - Uses runtime reflection to validate fields against entity metadata
+3. **Query Building** - Constructs TypeORM queries dynamically
+4. **Execution** - Executes queries with proper error handling and logging
+
+#### Architecture Components
+
+- **`DynamicQueryBuilderService`** - Parses URL parameters and builds query options
+- **`AdvancedQueryBuilderService`** - Constructs TypeORM queries from structured options
+- **`ReflectionService`** - Provides runtime field validation using TypeORM metadata
+- **`BaseService`** - Provides common CRUD operations with query builder integration
+
+#### Benefits
+
+- 🚀 **Performance** - Optimized queries with proper indexing
+- 🔒 **Security** - Field validation prevents SQL injection
+- 🎯 **Flexibility** - Support for complex query patterns
+- 📊 **Monitoring** - Built-in query logging and performance tracking
+- 🔧 **Maintainability** - Clean separation of concerns
+
+### Testing & Validation
+
+#### Field Validation
+
+The system automatically validates all query parameters:
+
+```typescript
+// Valid fields are determined at runtime
+const validFields = [
+  'id',
+  'email',
+  'displayName',
+  'role',
+  'isActive',
+  'createdAt',
+];
+const validOperators = [
+  'eq',
+  'ne',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'in',
+  'nin',
+  'like',
+  'ilike',
+];
+```
+
+#### Error Handling
+
+Invalid queries return helpful error messages:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    "Field 'invalidField' is not filterable",
+    "Operator 'invalidOp' is not supported",
+    "Value for 'page' must be a positive integer"
+  ],
+  "statusCode": 422
+}
+```
+
+#### Performance Monitoring
+
+All queries are logged with performance metrics:
+
+```
+[Query] GET /users?filter=role:eq:admin - 45ms - 15 results
+[Query] GET /users?search=john - 23ms - 3 results
+[Query] GET /users?sort=createdAt:DESC&page=2&limit=10 - 67ms - 10 results
+```
+
+### Supported Endpoints
+
+The Dynamic Query Builder is available on all endpoints that extend `BaseService`:
+
+#### Users API
+
+```http
+GET /users                    # Get all users with query options
+GET /users/:id               # Get user by ID
+POST /users                  # Create new user
+PUT /users/:id               # Update user
+DELETE /users/:id            # Delete user
+```
+
+#### Query Parameters
+
+All GET endpoints support these query parameters:
+
+- `page` - Page number (default: 1)
+- `limit` - Items per page (default: 20, max: 100)
+- `search` - Search query
+- `filter` - Filter conditions (can be repeated)
+- `sort` - Sort fields (can be repeated)
+- `select` - Fields to select
+- `exclude` - Fields to exclude
+- `relations` - Relations to load
+
+#### Example Usage
+
+```http
+# Get active admin users, sorted by creation date
+GET /users?filter=role:eq:admin&filter=isActive:eq:true&sort=createdAt:DESC
+
+# Search for users with "john" in name or email
+GET /users?search=john
+
+# Get users with pagination and field selection
+GET /users?page=2&limit=5&select=id,email,displayName
+```
+
+### Response Format
+
+All API responses follow a consistent format:
+
+#### Success Response
+
+```json
+{
+  "success": true,
+  "message": "Success",
+  "data": [...],
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "statusCode": 200
+}
+```
+
+#### Paginated Response
+
+```json
+{
+  "success": true,
+  "message": "Success",
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 100,
+    "totalPages": 5,
+    "hasNext": true,
+    "hasPrev": false,
+    "offset": 0
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "statusCode": 200
+}
+```
+
+#### Error Response
+
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": ["Field 'email' is required"],
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "statusCode": 422
+}
+```
+
+### Future Roadmap
+
+#### Planned Features
+
+- 🔄 **Real-time Queries** - WebSocket support for live data updates
+- 📊 **Query Analytics** - Advanced query performance analytics
+- 🔍 **Full-Text Search** - Elasticsearch integration for advanced search
+- 📱 **GraphQL Support** - GraphQL endpoint with query builder integration
+- 🎯 **Query Caching** - Intelligent query result caching
+- 📈 **Query Optimization** - Automatic query optimization suggestions
+
+#### Advanced Features
+
+- 🌐 **Multi-tenant Support** - Tenant-aware query filtering
+- 🔐 **Row-level Security** - Fine-grained access control
+- 📋 **Query Templates** - Pre-defined query templates
+- 🎨 **Custom Operators** - User-defined filter operators
+- 📊 **Aggregation Queries** - Advanced data aggregation support
+- 🔄 **Query Versioning** - Query history and versioning
+
+#### Integration Options
+
+- 🚀 **Frontend SDKs** - JavaScript/TypeScript SDKs for easy integration
+- 📱 **Mobile SDKs** - React Native and Flutter SDKs
+- 🔌 **Plugin System** - Extensible plugin architecture
+- 📊 **Dashboard Integration** - Built-in admin dashboard
+- 🔄 **API Gateway** - Integration with API gateways
+- 📈 **Monitoring** - Advanced monitoring and alerting
 
 ## 🚀 Quick Start
 
@@ -324,7 +771,9 @@ npm run test:watch
 
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Detailed architecture overview
 - **[Module Structure](docs/MODULE_STRUCTURE.md)** - SOLID module organization
+- **[Dynamic Query Builder](docs/DYNAMIC_QUERY_BUILDER.md)** - Frontend-friendly querying
 - **[API Documentation](docs/API.md)** - Complete API reference
+- **[Postman Collection](docs/postman/README.md)** - Easy API testing
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute
 
 ## 🛠️ Development
@@ -378,6 +827,86 @@ We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.
 4. Add tests
 5. Update documentation
 6. Submit a pull request
+
+## 🚀 Dynamic Query Builder
+
+### Quick Start
+
+The Dynamic Query Builder is now fully integrated into your API! Here's how to use it:
+
+#### 1. Basic Usage
+
+```http
+# Get all users with pagination
+GET /users?page=1&limit=10
+
+# Search users
+GET /users?search=john
+
+# Filter users
+GET /users?filter=role:eq:admin
+```
+
+#### 2. Advanced Queries
+
+```http
+# Complex filtering
+GET /users?filter=role:eq:admin&filter=isActive:eq:true&sort=createdAt:DESC
+
+# Search with filters
+GET /users?search=john&filter=role:eq:user&page=1&limit=5
+
+# Field selection
+GET /users?select=id,email,displayName&filter=isActive:eq:true
+```
+
+#### 3. Available Operators
+
+- `eq` - Equals
+- `ne` - Not equals
+- `gt` - Greater than
+- `gte` - Greater than or equal
+- `lt` - Less than
+- `lte` - Less than or equal
+- `in` - In array
+- `nin` - Not in array
+- `like` - Like pattern
+- `ilike` - Case insensitive like
+- `between` - Between two values
+- `isNull` - Is null
+- `isNotNull` - Is not null
+- `contains` - Contains substring
+- `startsWith` - Starts with
+- `endsWith` - Ends with
+
+#### 4. Response Format
+
+```json
+{
+  "success": true,
+  "message": "Success",
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 100,
+    "totalPages": 5,
+    "hasNext": true,
+    "hasPrev": false
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "statusCode": 200
+}
+```
+
+### Testing
+
+Use the included Postman collection to test all features:
+
+- Import `docs/postman/API_Collection.json`
+- Import `docs/postman/API_Environment.json`
+- Set your environment variables
+- Start testing!
 
 ## 📄 License
 

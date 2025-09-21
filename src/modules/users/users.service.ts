@@ -194,9 +194,9 @@ export class UsersService extends BaseService<User> {
   }
 
   /**
-   * Get entity class for BaseService
+   * Get entity class for BaseService (public access)
    */
-  protected getEntityClass(): new () => User {
+  getEntityClass(): new () => User {
     return User;
   }
 
