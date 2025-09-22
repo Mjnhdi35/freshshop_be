@@ -260,55 +260,87 @@ export class UsersController {
   private parseQueryToOptions(query: any): DynamicQueryOptions {
     const options: DynamicQueryOptions = {};
 
+    // Constants
+    const MAX_LIMIT = 100;
+    const DEFAULT_SORT_DIRECTION: 'ASC' | 'DESC' = 'ASC';
+    const DEFAULT_SEARCH_FIELDS = ['email', 'displayName'];
+
+    // Helper parsers
+    const toInt = (val: any): number | undefined => {
+      const num = parseInt(val, 10);
+      return Number.isFinite(num) ? num : undefined;
+    };
+
+    const clampLimit = (val: any): number | undefined => {
+      const n = toInt(val);
+      if (n === undefined) return undefined;
+      return Math.min(n, MAX_LIMIT);
+    };
+
     // Pagination
-    if (query.page) options.page = parseInt(query.page, 10);
-    if (query.limit) options.limit = Math.min(parseInt(query.limit, 10), 100);
+    const page = toInt(query.page);
+    const limit = clampLimit(query.limit);
+    if (page !== undefined) options.page = page;
+    if (limit !== undefined) options.limit = limit;
 
     // Search
-    if (query.search) {
+    const searchQuery: unknown = query.search;
+    if (typeof searchQuery === 'string' && searchQuery.trim().length > 0) {
       options.search = {
-        query: query.search,
-        fields: ['email', 'displayName'], // Default search fields
+        query: searchQuery.trim(),
+        fields: DEFAULT_SEARCH_FIELDS,
       };
     }
 
-    // Sort
-    if (query.sort) {
-      const sortParts = query.sort.split(':');
-      options.sort = [
-        {
-          field: sortParts[0],
-          direction: (sortParts[1] || 'ASC').toUpperCase() as 'ASC' | 'DESC',
-        },
-      ];
-    }
-
-    // Filters
-    if (query.filter) {
-      const filterParts = query.filter.split(':');
-      if (filterParts.length >= 2) {
-        options.filters = [
+    // Sort (format: field[:direction])
+    const sortInput: unknown = query.sort;
+    if (typeof sortInput === 'string' && sortInput.trim().length > 0) {
+      const [fieldRaw, dirRaw] = sortInput.split(':');
+      const field = fieldRaw?.trim();
+      const direction = (dirRaw || DEFAULT_SORT_DIRECTION).toUpperCase();
+      if (field) {
+        options.sort = [
           {
-            field: filterParts[0],
-            operator: (filterParts[1] as any) || 'eq',
-            value: filterParts[2] || filterParts[1],
+            field,
+            direction: (direction === 'DESC' ? 'DESC' : 'ASC') as
+              | 'ASC'
+              | 'DESC',
           },
         ];
       }
     }
 
-    // Include relations
-    if (query.include) {
-      options.include = query.include
-        .split(',')
-        .map((rel: string) => rel.trim());
+    // Filter (format: field:operator:value)
+    const filterInput: unknown = query.filter;
+    if (typeof filterInput === 'string' && filterInput.trim().length > 0) {
+      const [field, operator, value] = filterInput.split(':');
+      if (field && operator) {
+        options.filters = [
+          {
+            field: field.trim(),
+            operator: (operator as any) || 'eq',
+            value: (value ?? operator).trim(),
+          },
+        ];
+      }
     }
 
-    // Select fields
-    if (query.select) {
-      options.select = query.select
+    // Include relations: comma separated
+    const includeInput: unknown = query.include;
+    if (typeof includeInput === 'string' && includeInput.trim().length > 0) {
+      options.include = includeInput
         .split(',')
-        .map((field: string) => field.trim());
+        .map((rel) => rel.trim())
+        .filter((rel) => rel.length > 0);
+    }
+
+    // Select fields: comma separated
+    const selectInput: unknown = query.select;
+    if (typeof selectInput === 'string' && selectInput.trim().length > 0) {
+      options.select = selectInput
+        .split(',')
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
     }
 
     return options;

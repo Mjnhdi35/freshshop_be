@@ -4,6 +4,14 @@
 
 This API uses a **metadata-driven, runtime reflection** approach for dynamic querying. The system automatically detects entity capabilities without requiring decorators on entities.
 
+## Cost & Performance Optimizations
+
+- L1 In-memory LRU cache cho JWT/session trong `RedisService`
+- L2 Redis (Upstash) với TTL bắt buộc, nén Brotli >1KB, size limit 32KB
+- Rate limiting toàn cục bằng `@nestjs/throttler`
+- HTTP compression và security headers (helmet)
+- Neon Postgres pool tối ưu: pool nhỏ, idle/connection timeout ngắn
+
 ## 🎯 Core Principles
 
 ### 1. **Runtime Reflection over Decorators**
@@ -23,6 +31,7 @@ This API uses a **metadata-driven, runtime reflection** approach for dynamic que
 - Full TypeScript support
 - Compile-time type checking
 - Runtime validation
+- Env-driven configuration (không dùng magic number)
 
 ## 🏛️ Architecture Layers
 

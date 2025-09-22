@@ -39,6 +39,7 @@ A modern, scalable NestJS API with **runtime reflection**, **metadata-driven que
 - 🗑️ **Soft Delete** - Safe deletion with restore capability
 - ⚡ **Performance** - Query caching, bulk operations, optimized queries
 - 📚 **Well Documented** - Comprehensive docs for contributors
+- 🧠 **Cost-Optimized** - LRU in-memory cache + Redis shared cache, rate limiting, compression, tuned DB pool
 
 ## 🏗️ Architecture
 
@@ -814,6 +815,39 @@ docker run -p 4000:4000 api
 3. Configure environment variables
 4. Run migrations
 5. Deploy application
+
+### Environment Variables (new)
+
+```env
+# Rate limit
+RATE_LIMIT_TTL=60
+RATE_LIMIT_MAX=60
+
+# Compression
+COMPRESS_LEVEL=6
+COMPRESS_THRESHOLD_BYTES=1024
+
+# Database (Neon-friendly pool)
+DB_POOL_MAX=5
+DB_POOL_MIN=1
+DB_IDLE_TIMEOUT_MS=10000
+DB_CONNECTION_TIMEOUT_MS=5000
+
+# Redis/LRU (Upstash 128MB friendly)
+REDIS_DEFAULT_TTL=600
+REDIS_MAX_VALUE_BYTES=32768
+REDIS_COMPRESSION_THRESHOLD_BYTES=1024
+LRU_MAX_ENTRIES=2000
+```
+
+### Performance & Cost Optimization
+
+- L1 In-memory LRU cache cho JWT/session (giảm truy cập Redis)
+- L2 Redis Upstash với TTL bắt buộc, nén Brotli > 1KB, chặn payload > 32KB
+- Rate limiting toàn cục (`@nestjs/throttler`) với TTL/limit cấu hình
+- GZIP/Brotli compression: `COMPRESS_LEVEL`, `COMPRESS_THRESHOLD_BYTES`
+- DB pool tuned cho Neon serverless: pool nhỏ, idle/connection timeout ngắn
+- Metrics middleware ghi thời gian và kích thước response
 
 ## 🤝 Contributing
 

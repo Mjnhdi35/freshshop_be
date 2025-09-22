@@ -17,7 +17,6 @@ export * from './interfaces/pagination.interface';
 
 // SOLID Architecture Services
 export * from './metadata';
-export * from './di';
 export * from './validation';
 
 // Main Module

@@ -6,20 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Observable, throwError, timer } from 'rxjs';
-import {
-  map,
-  tap,
-  catchError,
-  retry,
-  timeout,
-  retryWhen,
-  delay,
-  take,
-  switchMap,
-  finalize,
-  filter,
-  distinctUntilChanged,
-} from 'rxjs/operators';
+import { map, tap, catchError, finalize } from 'rxjs/operators';
 import {
   ResponseUtils,
   ApiResponse,
@@ -77,31 +64,16 @@ export class ResponseInterceptor<T>
     );
 
     return next.handle().pipe(
-      // Add timeout protection (30 seconds)
-      timeout(30000),
-
-      // Log request start
-      tap(() => {
-        this.logger.debug(`🚀 Request started: ${method} ${url}`);
-      }),
-
-      // Process response data according to NestJS lifecycle
+      // Xử lý dữ liệu phản hồi (định dạng)
       map((data) => {
         const statusCode = response.statusCode;
-        const processingTime = Date.now() - startTime;
-
-        this.logger.debug(
-          `⏱️ Processing time: ${processingTime}ms for ${method} ${url}`,
-        );
 
         // Handle different response types using type guards
         if (this.isPaginatedResponse(data)) {
-          this.logger.debug(`✅ API Paginated Response: ${method} ${url}`);
           return this.formatPaginatedResponse(data, statusCode);
         }
 
         if (this.isErrorResponse(data)) {
-          this.logger.error(`❌ API Error: ${data.message || data.error}`);
           return this.formatErrorResponse(data, statusCode);
         }
 
@@ -109,7 +81,7 @@ export class ResponseInterceptor<T>
         return this.formatSuccessResponse(data, statusCode);
       }),
 
-      // Add response metadata
+      // Thêm metadata đơn giản
       map((formattedResponse) => {
         if (formattedResponse && typeof formattedResponse === 'object') {
           return {
@@ -124,51 +96,8 @@ export class ResponseInterceptor<T>
         return formattedResponse;
       }),
 
-      // Add retry logic for transient errors
-      retry({
-        count: 3,
-        delay: (error, retryCount) => {
-          this.logger.warn(
-            `Retry ${retryCount}/3 for ${method} ${url}: ${error.message}`,
-          );
-          return timer(Math.pow(2, retryCount) * 1000); // Exponential backoff
-        },
-        resetOnSuccess: true,
-      }),
-
-      // Add performance metrics
-      this.addPerformanceMetrics(startTime),
-
-      // Filter duplicate responses
-      this.filterDuplicateResponses(),
-
-      // Add request tracking
-      tap((response) => {
-        if (response && typeof response === 'object') {
-          this.logger.debug(`📊 Response metrics for ${method} ${url}:`, {
-            processingTime: Date.now() - startTime,
-            responseSize: JSON.stringify(response).length,
-            memoryUsage: process.memoryUsage().heapUsed,
-          });
-        }
-      }),
-
-      // Log successful completion
-      tap((formattedResponse) => {
-        const processingTime = Date.now() - startTime;
-        this.logger.debug(
-          `✅ Response completed: ${method} ${url} in ${processingTime}ms`,
-        );
-      }),
-
       // Handle errors gracefully (before Exception Filter)
       catchError((error) => {
-        const processingTime = Date.now() - startTime;
-        this.logger.error(
-          `❌ Request failed: ${method} ${url} after ${processingTime}ms`,
-          error.stack,
-        );
-
         // Format error response for Exception Filter
         const errorResponse = this.formatErrorResponse(
           {
@@ -182,12 +111,9 @@ export class ResponseInterceptor<T>
         return throwError(() => errorResponse);
       }),
 
-      // Final cleanup (after Exception Filter)
+      // Cleanup
       finalize(() => {
-        const totalTime = Date.now() - startTime;
-        this.logger.debug(
-          `🏁 Request finalized: ${method} ${url} total time: ${totalTime}ms`,
-        );
+        // no-op
       }),
     ) as Observable<ApiResponse<T> | PaginatedResponse<T>>;
   }
@@ -290,28 +216,7 @@ export class ResponseInterceptor<T>
     return `req_${Date.now()}_${this.requestCounter}`;
   }
 
-  private addPerformanceMetrics(startTime: number) {
-    return map((response: any) => {
-      if (response && typeof response === 'object') {
-        const processingTime = Date.now() - startTime;
-        return {
-          ...response,
-          performance: {
-            processingTime,
-            memoryUsage: process.memoryUsage(),
-            timestamp: new Date().toISOString(),
-          },
-        };
-      }
-      return response;
-    });
-  }
-
-  private filterDuplicateResponses() {
-    return distinctUntilChanged((prev, curr) => {
-      return JSON.stringify(prev) === JSON.stringify(curr);
-    });
-  }
+  // Đã loại bỏ logic metrics/retry để tuân thủ SRP.
 
   // Response Formatters
   private formatSuccessResponse(

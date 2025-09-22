@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Repository, ObjectLiteral } from 'typeorm';
-import { FieldValidator, QueryConfig } from '../decorators/metadata.decorators';
+import { QueryConfig } from '../decorators/metadata.decorators';
+import { AdvancedMetadataService } from '../metadata/advanced-metadata.service';
 
 @Injectable()
 export class ReflectionService {
   private readonly logger = new Logger(ReflectionService.name);
+
+  constructor(private readonly metadataService: AdvancedMetadataService) {}
 
   /**
    * Get query configuration for an entity using runtime reflection
@@ -14,47 +17,15 @@ export class ReflectionService {
     repository: Repository<T>,
   ): QueryConfig {
     try {
-      // Get entity metadata from TypeORM
-      const metadata = repository.metadata;
-      const columns = metadata.columns;
-
-      // Auto-detect field capabilities
-      const searchable: string[] = [];
-      const filterable: string[] = [];
-      const sortable: string[] = [];
-      const relations: string[] = [];
-
-      // Analyze columns
-      columns.forEach((column) => {
-        const fieldName = column.propertyName;
-
-        // Add to filterable (all fields can be filtered)
-        filterable.push(fieldName);
-
-        // Add to sortable if it's a comparable type
-        if (this.isSortableType(column.type)) {
-          sortable.push(fieldName);
-        }
-
-        // Add to searchable if it's a string type
-        if (this.isSearchableType(column.type)) {
-          searchable.push(fieldName);
-        }
-      });
-
-      // Analyze relations
-      metadata.relations.forEach((relation) => {
-        relations.push(relation.propertyName);
-      });
-
+      const capabilities = this.metadataService.getQueryCapabilities(entity);
       return {
-        searchable,
-        filterable,
-        sortable,
-        relations,
-        defaultSort: { field: 'createdAt', direction: 'DESC' },
-        defaultLimit: 20,
-        maxLimit: 100,
+        searchable: capabilities.searchable,
+        filterable: capabilities.filterable,
+        sortable: capabilities.sortable,
+        relations: capabilities.relations,
+        defaultSort: capabilities.defaultSort,
+        defaultLimit: capabilities.defaultLimit,
+        maxLimit: capabilities.maxLimit,
       };
     } catch (error) {
       this.logger.error('Failed to get query config:', error);
@@ -71,16 +42,13 @@ export class ReflectionService {
     operation: 'search' | 'filter' | 'sort',
   ): boolean {
     try {
-      switch (operation) {
-        case 'search':
-          return FieldValidator.isSearchableField(entity, field);
-        case 'filter':
-          return FieldValidator.isFilterableField(entity, field);
-        case 'sort':
-          return FieldValidator.isSortableField(entity, field);
-        default:
-          return false;
-      }
+      const capabilities = this.metadataService.getQueryCapabilities(entity);
+      if (operation === 'search')
+        return capabilities.searchable.includes(field);
+      if (operation === 'filter')
+        return capabilities.filterable.includes(field);
+      if (operation === 'sort') return capabilities.sortable.includes(field);
+      return false;
     } catch (error) {
       this.logger.warn(`Field validation failed for ${field}:`, error);
       return false;
@@ -92,7 +60,8 @@ export class ReflectionService {
    */
   getAvailableFields<T>(entity: new () => T): string[] {
     try {
-      return FieldValidator.getAvailableFields(entity);
+      const metadata = this.metadataService.getEntityMetadata(entity);
+      return metadata.columns.map((c) => c.name);
     } catch (error) {
       this.logger.error('Failed to get available fields:', error);
       return [];
@@ -143,44 +112,6 @@ export class ReflectionService {
       this.logger.error('Failed to get entity info:', error);
       return null;
     }
-  }
-
-  /**
-   * Check if column type is sortable
-   */
-  private isSortableType(type: any): boolean {
-    const sortableTypes = [
-      'string',
-      'varchar',
-      'text',
-      'int',
-      'integer',
-      'bigint',
-      'float',
-      'double',
-      'decimal',
-      'date',
-      'datetime',
-      'timestamp',
-      'boolean',
-      'bool',
-    ];
-
-    const typeString = type.toString().toLowerCase();
-    return sortableTypes.some((sortableType) =>
-      typeString.includes(sortableType),
-    );
-  }
-
-  /**
-   * Check if column type is searchable
-   */
-  private isSearchableType(type: any): boolean {
-    const searchableTypes = ['string', 'varchar', 'text'];
-    const typeString = type.toString().toLowerCase();
-    return searchableTypes.some((searchableType) =>
-      typeString.includes(searchableType),
-    );
   }
 
   /**

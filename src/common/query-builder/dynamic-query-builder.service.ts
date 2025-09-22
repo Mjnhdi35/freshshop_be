@@ -1,14 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SelectQueryBuilder, Repository, ObjectLiteral } from 'typeorm';
 import {
-  QueryBuilderOptions,
-  FilterOptions,
-  SortOptions,
-  SearchOptions,
   PaginatedResult,
   QueryResult,
 } from '../interfaces/pagination.interface';
 import { ReflectionService } from '../reflection/reflection.service';
+import { AdvancedQueryBuilderService } from './advanced-query-builder.service';
 
 /**
  * Simple filter interface for easy frontend usage
@@ -71,7 +68,10 @@ export interface DynamicQueryOptions {
 export class DynamicQueryBuilderService {
   private readonly logger = new Logger(DynamicQueryBuilderService.name);
 
-  constructor(private readonly reflectionService: ReflectionService) {}
+  constructor(
+    private readonly reflectionService: ReflectionService,
+    private readonly advancedQueryBuilder: AdvancedQueryBuilderService,
+  ) {}
 
   /**
    * Build query from simple options (frontend-friendly)
@@ -81,39 +81,12 @@ export class DynamicQueryBuilderService {
     entity: new () => T,
     options: DynamicQueryOptions,
   ): Promise<SelectQueryBuilder<T>> {
-    const queryBuilder = repository.createQueryBuilder();
-
-    // Apply select fields
-    if (options.select?.length) {
-      const fields = options.select
-        .map((field) => `entity.${field}`)
-        .join(', ');
-      queryBuilder.select(fields);
-    }
-
-    // Apply relations
-    if (options.include?.length) {
-      options.include.forEach((relation) => {
-        queryBuilder.leftJoinAndSelect(`entity.${relation}`, relation);
-      });
-    }
-
-    // Apply filters
-    if (options.filters?.length) {
-      this.applySimpleFilters(queryBuilder, entity, options.filters);
-    }
-
-    // Apply search
-    if (options.search?.query) {
-      this.applySimpleSearch(queryBuilder, entity, options.search);
-    }
-
-    // Apply sorting
-    if (options.sort?.length) {
-      this.applySimpleSorting(queryBuilder, entity, options.sort);
-    }
-
-    return queryBuilder;
+    const advancedOptions = this.mapDynamicToAdvancedOptions(options);
+    return this.advancedQueryBuilder.buildAdvancedQuery(
+      repository,
+      entity,
+      advancedOptions,
+    );
   }
 
   /**
@@ -124,40 +97,12 @@ export class DynamicQueryBuilderService {
     entity: new () => T,
     options: DynamicQueryOptions,
   ): Promise<PaginatedResult<T>> {
-    const page = options.page || 1;
-    const limit = Math.min(options.limit || 20, 100); // Max 100 items
-    const offset = (page - 1) * limit;
-
-    // Build query
-    const queryBuilder = await this.buildDynamicQuery(
+    const advancedOptions = this.mapDynamicToAdvancedOptions(options, true);
+    return this.advancedQueryBuilder.executePaginatedQuery(
       repository,
       entity,
-      options,
+      advancedOptions,
     );
-
-    // Get total count
-    const total = await queryBuilder.getCount();
-
-    // Apply pagination
-    queryBuilder.skip(offset).take(limit);
-
-    // Execute query
-    const data = await queryBuilder.getMany();
-
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1,
-        offset,
-      },
-    };
   }
 
   /**
@@ -168,14 +113,12 @@ export class DynamicQueryBuilderService {
     entity: new () => T,
     options: DynamicQueryOptions,
   ): Promise<QueryResult<T>> {
-    const queryBuilder = await this.buildDynamicQuery(
+    const advancedOptions = this.mapDynamicToAdvancedOptions(options);
+    return this.advancedQueryBuilder.executeQuery(
       repository,
       entity,
-      options,
+      advancedOptions,
     );
-    const data = await queryBuilder.getMany();
-
-    return { data };
   }
 
   /**
@@ -391,5 +334,61 @@ export class DynamicQueryBuilderService {
       isValid: errors.length === 0,
       errors,
     };
+  }
+
+  private mapDynamicToAdvancedOptions(
+    options: DynamicQueryOptions,
+    withPagination: boolean = false,
+  ) {
+    const mapped: any = {};
+
+    if (options.select?.length) {
+      mapped.select = {
+        fields: options.select,
+        exclude: options.exclude || [],
+      };
+    }
+
+    if (options.include?.length) {
+      mapped.relations = {
+        relations: options.include,
+        eager: true,
+        maxDepth: 1,
+      };
+    }
+
+    if (options.filters?.length) {
+      mapped.filters = options.filters.map((f) => ({
+        field: f.field,
+        operator: (f.operator || 'eq') as any,
+        value: Array.isArray(f.value) ? undefined : f.value,
+        values: Array.isArray(f.value) ? f.value : undefined,
+      }));
+    }
+
+    if (options.search?.query) {
+      mapped.search = {
+        query: options.search.query,
+        fields: options.search.fields || [],
+        mode: 'partial',
+        caseSensitive: false,
+      };
+    }
+
+    if (options.sort?.length) {
+      mapped.sort = options.sort.map((s) => ({
+        field: s.field,
+        direction: (s.direction || 'ASC') as 'ASC' | 'DESC',
+      }));
+    }
+
+    if (withPagination) {
+      mapped.pagination = {
+        page: options.page || 1,
+        limit: Math.min(options.limit || 20, 100),
+      };
+    }
+
+    return mapped;
   }
 }

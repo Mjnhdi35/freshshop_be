@@ -426,7 +426,582 @@ export class UsersController {
 
 ## 🍳 NestJS Recipes
 
-### 1. Database Transactions
+### 1. TypeORM Migrations
+
+#### Migration Setup
+
+```typescript
+// src/config/migration.config.ts
+import { DataSource } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+
+export const getMigrationConfig = (configService: ConfigService) => ({
+  type: 'postgres',
+  url: configService.getOrThrow('DATABASE_URL'),
+  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
+  migrations: [__dirname + '/../migrations/*{.ts,.js}'],
+  migrationsTableName: 'migrations',
+  synchronize: false,
+  logging: true,
+});
+
+// package.json scripts
+{
+  "scripts": {
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/config/migration.config.ts",
+    "migration:create": "typeorm-ts-node-commonjs migration:create",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/config/migration.config.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/config/migration.config.ts",
+    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/config/migration.config.ts"
+  }
+}
+```
+
+#### Creating Migrations
+
+```typescript
+// Generate migration automatically
+npm run migration:generate src/migrations/CreateUserTable
+
+// Create empty migration
+npm run migration:create src/migrations/AddUserIndexes
+```
+
+#### Migration Examples
+
+```typescript
+// src/migrations/1703123456789-CreateUserTable.ts
+import { MigrationInterface, QueryRunner, Table, Index } from 'typeorm';
+
+export class CreateUserTable1703123456789 implements MigrationInterface {
+  name = 'CreateUserTable1703123456789';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.createTable(
+      new Table({
+        name: 'users',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
+          },
+          {
+            name: 'email',
+            type: 'varchar',
+            length: '255',
+            isUnique: true,
+            isNullable: false,
+          },
+          {
+            name: 'password',
+            type: 'varchar',
+            length: '255',
+            isNullable: false,
+          },
+          {
+            name: 'display_name',
+            type: 'varchar',
+            length: '100',
+            isNullable: true,
+          },
+          {
+            name: 'role',
+            type: 'enum',
+            enum: ['user', 'admin', 'moderator'],
+            default: "'user'",
+          },
+          {
+            name: 'is_active',
+            type: 'boolean',
+            default: true,
+          },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            onUpdate: 'CURRENT_TIMESTAMP',
+          },
+          {
+            name: 'deleted_at',
+            type: 'timestamp',
+            isNullable: true,
+          },
+        ],
+      }),
+      true,
+    );
+
+    // Create indexes
+    await queryRunner.createIndex(
+      'users',
+      new Index('IDX_USERS_EMAIL', ['email']),
+    );
+    await queryRunner.createIndex(
+      'users',
+      new Index('IDX_USERS_ROLE', ['role']),
+    );
+    await queryRunner.createIndex(
+      'users',
+      new Index('IDX_USERS_ACTIVE', ['is_active']),
+    );
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropTable('users');
+  }
+}
+```
+
+#### Complex Migration Example
+
+```typescript
+// src/migrations/1703123456790-AddUserProfileRelation.ts
+import { MigrationInterface, QueryRunner, Table, ForeignKey } from 'typeorm';
+
+export class AddUserProfileRelation1703123456790 implements MigrationInterface {
+  name = 'AddUserProfileRelation1703123456790';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Create profiles table
+    await queryRunner.createTable(
+      new Table({
+        name: 'profiles',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
+          },
+          {
+            name: 'user_id',
+            type: 'uuid',
+            isNullable: false,
+          },
+          {
+            name: 'first_name',
+            type: 'varchar',
+            length: '50',
+            isNullable: true,
+          },
+          {
+            name: 'last_name',
+            type: 'varchar',
+            length: '50',
+            isNullable: true,
+          },
+          {
+            name: 'phone',
+            type: 'varchar',
+            length: '20',
+            isNullable: true,
+          },
+          {
+            name: 'avatar_url',
+            type: 'varchar',
+            length: '500',
+            isNullable: true,
+          },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            onUpdate: 'CURRENT_TIMESTAMP',
+          },
+        ],
+      }),
+      true,
+    );
+
+    // Add foreign key constraint
+    await queryRunner.createForeignKey(
+      'profiles',
+      new ForeignKey({
+        columnNames: ['user_id'],
+        referencedColumnNames: ['id'],
+        referencedTableName: 'users',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      }),
+    );
+
+    // Create unique index for user_id
+    await queryRunner.createIndex(
+      'profiles',
+      new Index('IDX_PROFILES_USER_ID', ['user_id'], { isUnique: true }),
+    );
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropTable('profiles');
+  }
+}
+```
+
+#### Data Migration Example
+
+```typescript
+// src/migrations/1703123456791-MigrateUserData.ts
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class MigrateUserData1703123456791 implements MigrationInterface {
+  name = 'MigrateUserData1703123456791';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Migrate existing data
+    await queryRunner.query(`
+      INSERT INTO profiles (user_id, first_name, last_name, created_at, updated_at)
+      SELECT 
+        id as user_id,
+        SPLIT_PART(display_name, ' ', 1) as first_name,
+        SPLIT_PART(display_name, ' ', 2) as last_name,
+        created_at,
+        updated_at
+      FROM users 
+      WHERE display_name IS NOT NULL 
+      AND display_name != ''
+    `);
+
+    // Update user roles based on email domain
+    await queryRunner.query(`
+      UPDATE users 
+      SET role = 'admin' 
+      WHERE email LIKE '%@admin.company.com'
+    `);
+
+    // Add default profile for users without display_name
+    await queryRunner.query(`
+      INSERT INTO profiles (user_id, first_name, created_at, updated_at)
+      SELECT 
+        id as user_id,
+        'User' as first_name,
+        created_at,
+        updated_at
+      FROM users 
+      WHERE id NOT IN (SELECT user_id FROM profiles)
+    `);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Revert data changes
+    await queryRunner.query(`DELETE FROM profiles`);
+    await queryRunner.query(`UPDATE users SET role = 'user'`);
+  }
+}
+```
+
+#### Schema Change Migration
+
+```typescript
+// src/migrations/1703123456792-AddUserIndexes.ts
+import { MigrationInterface, QueryRunner, Index } from 'typeorm';
+
+export class AddUserIndexes1703123456792 implements MigrationInterface {
+  name = 'AddUserIndexes1703123456792';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Add composite index
+    await queryRunner.createIndex(
+      'users',
+      new Index('IDX_USERS_ROLE_ACTIVE', ['role', 'is_active']),
+    );
+
+    // Add partial index for soft deleted records
+    await queryRunner.createIndex(
+      'users',
+      new Index('IDX_USERS_ACTIVE_EMAIL', ['email'], {
+        where: 'deleted_at IS NULL',
+      }),
+    );
+
+    // Add expression index
+    await queryRunner.createIndex(
+      'users',
+      new Index('IDX_USERS_EMAIL_LOWER', ['LOWER(email)']),
+    );
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropIndex('users', 'IDX_USERS_ROLE_ACTIVE');
+    await queryRunner.dropIndex('users', 'IDX_USERS_ACTIVE_EMAIL');
+    await queryRunner.dropIndex('users', 'IDX_USERS_EMAIL_LOWER');
+  }
+}
+```
+
+#### Running Migrations
+
+```typescript
+// src/config/migration-runner.service.ts
+import { Injectable, Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class MigrationRunnerService {
+  private readonly logger = new Logger(MigrationRunnerService.name);
+
+  constructor(
+    private dataSource: DataSource,
+    private configService: ConfigService,
+  ) {}
+
+  async runMigrations(): Promise<void> {
+    try {
+      this.logger.log('Running database migrations...');
+      await this.dataSource.runMigrations();
+      this.logger.log('Database migrations completed successfully');
+    } catch (error) {
+      this.logger.error('Migration failed:', error);
+      throw error;
+    }
+  }
+
+  async revertLastMigration(): Promise<void> {
+    try {
+      this.logger.log('Reverting last migration...');
+      await this.dataSource.undoLastMigration();
+      this.logger.log('Last migration reverted successfully');
+    } catch (error) {
+      this.logger.error('Migration revert failed:', error);
+      throw error;
+    }
+  }
+
+  async getMigrationStatus(): Promise<any> {
+    const pendingMigrations = await this.dataSource.showMigrations();
+    return {
+      hasUnrunMigrations: pendingMigrations,
+      migrations: await this.dataSource.query(
+        'SELECT * FROM migrations ORDER BY timestamp DESC',
+      ),
+    };
+  }
+}
+```
+
+#### Migration in Application Bootstrap
+
+```typescript
+// src/main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { MigrationRunnerService } from './config/migration-runner.service';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  // Run migrations on startup (only in production)
+  if (process.env.NODE_ENV === 'production') {
+    const migrationRunner = app.get(MigrationRunnerService);
+    await migrationRunner.runMigrations();
+  }
+
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+#### Migration Best Practices
+
+```typescript
+// 1. Always test migrations on a copy of production data
+// 2. Write reversible migrations (both up and down methods)
+// 3. Use transactions for data migrations
+// 4. Add proper indexes for performance
+// 5. Use descriptive migration names
+
+// Example: Safe data migration with rollback
+export class SafeDataMigration1703123456793 implements MigrationInterface {
+  name = 'SafeDataMigration1703123456793';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Use transaction for data safety
+    await queryRunner.startTransaction();
+
+    try {
+      // Backup existing data
+      await queryRunner.query(`
+        CREATE TABLE users_backup AS 
+        SELECT * FROM users WHERE created_at < '2024-01-01'
+      `);
+
+      // Perform data transformation
+      await queryRunner.query(`
+        UPDATE users 
+        SET email = LOWER(email)
+        WHERE email != LOWER(email)
+      `);
+
+      // Add validation
+      const invalidEmails = await queryRunner.query(`
+        SELECT COUNT(*) as count 
+        FROM users 
+        WHERE email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'
+      `);
+
+      if (invalidEmails[0].count > 0) {
+        throw new Error('Invalid email format detected');
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    }
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Restore from backup
+    await queryRunner.query(`
+      DELETE FROM users WHERE created_at < '2024-01-01'
+    `);
+
+    await queryRunner.query(`
+      INSERT INTO users 
+      SELECT * FROM users_backup
+    `);
+
+    await queryRunner.query(`DROP TABLE users_backup`);
+  }
+}
+```
+
+#### Advanced Migration Patterns
+
+```typescript
+// 1. Conditional Migration
+export class ConditionalMigration1703123456794 implements MigrationInterface {
+  name = 'ConditionalMigration1703123456794';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Check if column exists before adding
+    const hasColumn = await queryRunner.hasColumn('users', 'phone');
+    if (!hasColumn) {
+      await queryRunner.addColumn(
+        'users',
+        new TableColumn({
+          name: 'phone',
+          type: 'varchar',
+          length: '20',
+          isNullable: true,
+        }),
+      );
+    }
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    const hasColumn = await queryRunner.hasColumn('users', 'phone');
+    if (hasColumn) {
+      await queryRunner.dropColumn('users', 'phone');
+    }
+  }
+}
+
+// 2. Multi-Database Migration
+export class MultiDatabaseMigration1703123456795 implements MigrationInterface {
+  name = 'MultiDatabaseMigration1703123456795';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Check database type
+    const dbType = queryRunner.connection.options.type;
+
+    if (dbType === 'postgres') {
+      await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+    } else if (dbType === 'mysql') {
+      await queryRunner.query(`SET sql_mode = 'STRICT_TRANS_TABLES'`);
+    }
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Revert database-specific changes
+    const dbType = queryRunner.connection.options.type;
+
+    if (dbType === 'postgres') {
+      await queryRunner.query(`DROP EXTENSION IF EXISTS "uuid-ossp"`);
+    }
+  }
+}
+
+// 3. Performance-Optimized Migration
+export class PerformanceMigration1703123456796 implements MigrationInterface {
+  name = 'PerformanceMigration1703123456796';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Add index concurrently (PostgreSQL)
+    await queryRunner.query(`
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email_active 
+      ON users (email) 
+      WHERE is_active = true
+    `);
+
+    // Batch update for large tables
+    const batchSize = 1000;
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await queryRunner.query(`
+        UPDATE users 
+        SET updated_at = CURRENT_TIMESTAMP 
+        WHERE id IN (
+          SELECT id FROM users 
+          ORDER BY id 
+          LIMIT ${batchSize} OFFSET ${offset}
+        )
+      `);
+
+      hasMore = result.affectedRows === batchSize;
+      offset += batchSize;
+    }
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP INDEX IF EXISTS idx_users_email_active`);
+  }
+}
+```
+
+#### Migration CLI Commands
+
+```bash
+# Generate migration from entity changes
+npm run migration:generate src/migrations/UpdateUserTable
+
+# Create empty migration file
+npm run migration:create src/migrations/AddUserIndexes
+
+# Run pending migrations
+npm run migration:run
+
+# Revert last migration
+npm run migration:revert
+
+# Show migration status
+npm run migration:show
+
+# Run specific migration
+npx typeorm migration:run -d src/config/migration.config.ts --transaction each
+
+# Revert to specific migration
+npx typeorm migration:revert -d src/config/migration.config.ts --transaction each
+```
+
+### 2. Database Transactions
 
 ```typescript
 @Injectable()

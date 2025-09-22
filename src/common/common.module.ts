@@ -5,11 +5,6 @@ import { BaseServiceModule } from './base-service/base-service.module';
 
 // SOLID Architecture Modules
 import { AdvancedMetadataService } from './metadata/advanced-metadata.service';
-import {
-  AdvancedDependencyContainer,
-  ServiceRegistry,
-  ModuleRegistry,
-} from './di/advanced-di-container.service';
 import { AdvancedRuntimeValidationService } from './validation/advanced-runtime-validation.service';
 
 /**
@@ -26,14 +21,6 @@ import { AdvancedRuntimeValidationService } from './validation/advanced-runtime-
   providers: [
     // SOLID Architecture Services
     AdvancedMetadataService,
-    AdvancedDependencyContainer,
-    {
-      provide: ServiceRegistry,
-      useFactory: (container: AdvancedDependencyContainer) =>
-        new ServiceRegistry(container),
-      inject: [AdvancedDependencyContainer],
-    },
-    ModuleRegistry,
     AdvancedRuntimeValidationService,
   ],
   exports: [
@@ -44,9 +31,6 @@ import { AdvancedRuntimeValidationService } from './validation/advanced-runtime-
 
     // SOLID Architecture Services
     AdvancedMetadataService,
-    AdvancedDependencyContainer,
-    ServiceRegistry,
-    ModuleRegistry,
     AdvancedRuntimeValidationService,
   ],
 })

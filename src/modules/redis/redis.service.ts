@@ -6,13 +6,42 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Redis } from '@upstash/redis';
+import { brotliCompressSync, brotliDecompressSync } from 'zlib';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private isConnected = false;
+  // Metrics
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  // In-memory LRU (tầng 1)
+  private lru: Map<string, { v: string; ts: number; exp?: number }> = new Map();
+  private readonly LRU_MAX_ENTRIES: number;
+  private readonly LRU_PREFIX_WHITELIST: string[];
+  private readonly LRU_SHORT_TTL_SECONDS: number;
 
-  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
+  // Defaults (tối ưu chi phí cho Upstash free 128MB)
+  private readonly DEFAULT_TTL_SECONDS: number;
+  private readonly MAX_VALUE_BYTES: number;
+  private readonly COMPRESSION_THRESHOLD_BYTES: number;
+
+  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {
+    // Configurable qua env nếu cần
+    this.DEFAULT_TTL_SECONDS = Number(process.env.REDIS_DEFAULT_TTL || 600);
+    this.MAX_VALUE_BYTES = Number(
+      process.env.REDIS_MAX_VALUE_BYTES || 32 * 1024,
+    );
+    this.COMPRESSION_THRESHOLD_BYTES = Number(
+      process.env.REDIS_COMPRESSION_THRESHOLD_BYTES || 1024,
+    );
+    this.LRU_MAX_ENTRIES = Number(process.env.LRU_MAX_ENTRIES || 2000);
+    this.LRU_PREFIX_WHITELIST = (process.env.LRU_PREFIX_WHITELIST || 'meta:')
+      .split(',')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    this.LRU_SHORT_TTL_SECONDS = Number(process.env.LRU_SHORT_TTL || 60);
+  }
 
   async onModuleInit() {
     this.logger.log('🔧 Redis Service initializing...');
@@ -49,8 +78,21 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async get(key: string): Promise<string | null> {
     try {
+      // LRU layer trước (chỉ áp dụng cho key đủ điều kiện)
+      if (this.isLruEligible(key)) {
+        const lruVal = this.lruGet(key);
+        if (lruVal !== undefined) {
+          this.cacheHits++;
+          return lruVal;
+        }
+      }
       const result = (await this.redis.get(key)) as string | null;
       this.logger.debug(`📖 Redis GET: ${key}`);
+      if (result === null) this.cacheMisses++;
+      else this.cacheHits++;
+      if (result !== null && this.isLruEligible(key)) {
+        this.lruSet(key, result, await this.ttl(key));
+      }
       return result;
     } catch (error) {
       this.logger.error(`❌ Redis GET failed for key ${key}:`, error);
@@ -60,13 +102,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<string> {
     try {
+      // Enforce TTL mặc định nếu không truyền vào
+      const ttl = ttlSeconds ?? this.DEFAULT_TTL_SECONDS;
+      // Kích thước guard
+      const valueBytes = Buffer.byteLength(value);
+      if (valueBytes > this.MAX_VALUE_BYTES) {
+        this.logger.warn(
+          `⚠️ Redis SET skipped: value too large (${valueBytes}B > ${this.MAX_VALUE_BYTES}B) for key ${key}`,
+        );
+        return 'SKIPPED_TOO_LARGE';
+      }
+
       let result: string;
-      if (ttlSeconds) {
-        result = (await this.redis.setex(key, ttlSeconds, value)) as string;
-        this.logger.debug(`💾 Redis SETEX: ${key} (TTL: ${ttlSeconds}s)`);
-      } else {
-        result = (await this.redis.set(key, value)) as string;
-        this.logger.debug(`💾 Redis SET: ${key}`);
+      result = (await this.redis.setex(key, ttl, value)) as string;
+      this.logger.debug(
+        `💾 Redis SETEX: ${key} (TTL: ${ttl}s, ${valueBytes}B)`,
+      );
+      // update LRU nếu đủ điều kiện
+      if (this.isLruEligible(key)) {
+        this.lruSet(key, value, ttl);
       }
       return result;
     } catch (error) {
@@ -79,6 +133,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     try {
       const result = await this.redis.del(key);
       this.logger.debug(`🗑️ Redis DEL: ${key}`);
+      this.lruDelete(key);
       return result;
     } catch (error) {
       this.logger.error(`❌ Redis DEL failed for key ${key}:`, error);
@@ -130,6 +185,131 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`❌ Redis KEYS failed for pattern ${pattern}:`, error);
       throw error;
     }
+  }
+
+  // Tránh KEYS * trong prod: dùng SCAN để an toàn hơn
+  async scanKeys(matchPattern: string, count: number = 100): Promise<string[]> {
+    try {
+      let cursor = '0';
+      const keys: string[] = [];
+      do {
+        const res = (await this.redis.scan(cursor, {
+          match: matchPattern,
+          count,
+        })) as any;
+        cursor = res[0];
+        const batch = res[1] as string[];
+        keys.push(...batch);
+      } while (cursor !== '0');
+      this.logger.debug(
+        `🔎 Redis SCAN: ${matchPattern} -> ${keys.length} keys`,
+      );
+      return keys;
+    } catch (error) {
+      this.logger.error(
+        `❌ Redis SCAN failed for pattern ${matchPattern}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  // Helpers: build key theo namespace + parts + optional tags
+  buildKey(
+    namespace: string,
+    parts: Array<string | number>,
+    tags?: Record<string, string | number>,
+  ): string {
+    const ns = namespace.trim().toLowerCase();
+    const p = parts
+      .filter((x) => x !== undefined && x !== null)
+      .map((x) => String(x).replace(/\s+/g, '_'))
+      .join(':');
+    const t = tags
+      ? Object.entries(tags)
+          .map(([k, v]) => `${k}=${String(v).replace(/\s+/g, '_')}`)
+          .join('|')
+      : '';
+    return t ? `${ns}:${p}|${t}` : `${ns}:${p}`;
+  }
+
+  // JSON + nén brotli (prefix br: / j:)
+  async setJson(
+    key: string,
+    obj: unknown,
+    ttlSeconds?: number,
+  ): Promise<string> {
+    const json = JSON.stringify(obj);
+    const bytes = Buffer.byteLength(json);
+    if (bytes > this.COMPRESSION_THRESHOLD_BYTES) {
+      const compressed = brotliCompressSync(Buffer.from(json));
+      const b64 = compressed.toString('base64');
+      const payload = `br:${b64}`;
+      return this.set(key, payload, ttlSeconds);
+    }
+    return this.set(key, `j:${json}`, ttlSeconds);
+  }
+
+  async getJson<T = any>(key: string): Promise<T | null> {
+    const raw = await this.get(key);
+    if (!raw) return null;
+    if (raw.startsWith('br:')) {
+      const b64 = raw.slice(3);
+      const buf = Buffer.from(b64, 'base64');
+      const decompressed = brotliDecompressSync(buf).toString();
+      return JSON.parse(decompressed) as T;
+    }
+    if (raw.startsWith('j:')) {
+      return JSON.parse(raw.slice(2)) as T;
+    }
+    // fallback legacy plain json
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return raw as unknown as T;
+    }
+  }
+
+  // Expose metrics
+  getMetrics() {
+    return { hits: this.cacheHits, misses: this.cacheMisses };
+  }
+
+  // --- LRU helpers (O(1) trung bình dựa trên Map + thao tác sắp xếp lại) ---
+  private lruGet(key: string): string | undefined {
+    const entry = this.lru.get(key);
+    if (!entry) return undefined;
+    // expire check
+    if (entry.exp && entry.exp * 1000 < Date.now()) {
+      this.lru.delete(key);
+      return undefined;
+    }
+    // move to most recent: delete then set
+    this.lru.delete(key);
+    this.lru.set(key, { ...entry, ts: Date.now() });
+    return entry.v;
+  }
+
+  private lruSet(key: string, value: string, ttlSeconds?: number) {
+    // evict if over capacity
+    if (this.lru.size >= this.LRU_MAX_ENTRIES) {
+      const oldestKey = this.lru.keys().next().value as string | undefined;
+      if (oldestKey) this.lru.delete(oldestKey);
+    }
+    // Cho metadata/hot reads: dùng TTL ngắn trong LRU để tự làm mới thường xuyên
+    const effectiveTtl = ttlSeconds
+      ? Math.min(ttlSeconds, this.LRU_SHORT_TTL_SECONDS)
+      : this.LRU_SHORT_TTL_SECONDS;
+    const exp = Math.floor(Date.now() / 1000) + effectiveTtl;
+    this.lru.set(key, { v: value, ts: Date.now(), exp });
+  }
+
+  private lruDelete(key: string) {
+    this.lru.delete(key);
+  }
+
+  private isLruEligible(key: string): boolean {
+    return this.LRU_PREFIX_WHITELIST.some((prefix) => key.startsWith(prefix));
   }
 
   async flushall(): Promise<string> {
