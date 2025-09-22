@@ -1,4 +1,14 @@
-# 🚀 Advanced NestJS API
+# 🚀 API NestJS nâng cao (Meta-driven)
+
+Lưu ý: README đã được cập nhật tóm tắt bằng tiếng Việt. Nội dung chi tiết bên dưới giữ nguyên để tham khảo nhanh bằng tiếng Anh. Các phần chính: kiến trúc SOLID, runtime reflection (metadata), query builder, BaseService, logging/metrics, tối ưu chi phí cho Neon/Upstash/Render.
+
+Tóm tắt nhanh (VN):
+
+- Runtime Reflection: tự động phát hiện trường/quan hệ từ TypeORM metadata, không cần decorator tùy biến.
+- Query nâng cao: filter (>20 toán tử), search, sort, pagination, select, include.
+- Tối ưu chi phí: pool DB nhỏ, timeout ngắn, throttling, HTTP compression, cache 2 tầng (LRU in-memory + Redis với TTL/nén/size limit).
+- SRP: `ResponseInterceptor` chỉ format; metrics qua middleware; lỗi qua `HttpExceptionFilter`.
+- Chuẩn hóa response: success/paginated/error thống nhất, có timestamp/statusCode.
 
 A modern, scalable NestJS API with **runtime reflection**, **metadata-driven querying**, and **advanced filtering capabilities**.
 
@@ -812,7 +822,7 @@ docker run -p 4000:4000 api
 
 1. Set up PostgreSQL database
 2. Set up Redis instance
-3. Configure environment variables
+3. Configure environment variables (see .env.example)
 4. Run migrations
 5. Deploy application
 

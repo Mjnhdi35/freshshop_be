@@ -1,10 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  Repository,
-  FindManyOptions,
-  FindOneOptions,
-  DeepPartial,
-} from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
 import { BaseEntity } from '../entities/base.entity';
 import { ReflectionService } from '../reflection/reflection.service';
 import { AdvancedQueryBuilderService } from '../query-builder/advanced-query-builder.service';
@@ -12,7 +7,6 @@ import {
   QueryBuilderOptions,
   PaginatedResult,
   QueryResult,
-  AdvancedQueryOptions,
   QueryContext,
   QueryExecutionOptions,
 } from '../interfaces/pagination.interface';

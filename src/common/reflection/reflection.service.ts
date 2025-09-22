@@ -69,6 +69,42 @@ export class ReflectionService {
   }
 
   /**
+   * Trả về mapping field -> { dbName, typeChuẩn }
+   */
+  getFieldColumnMap<T>(
+    entity: new () => T,
+  ): Record<string, { dbName: string; type: string }> {
+    try {
+      return this.metadataService.getFieldColumnMap(entity);
+    } catch (error) {
+      this.logger.error('Failed to get field-column map:', error);
+      return {};
+    }
+  }
+
+  /** Quan hệ dạng map (tên quan hệ -> thông tin) */
+  getRelationsMap<T>(entity: new () => T) {
+    try {
+      return this.metadataService.getRelationsMap(entity);
+    } catch (error) {
+      this.logger.error('Failed to get relations map:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Giải quyết đường dẫn lồng nhau (vd: profile.address.city)
+   */
+  resolvePath<T>(entity: new () => T, path: string) {
+    try {
+      return this.metadataService.resolvePath(entity, path);
+    } catch (error) {
+      this.logger.error('Failed to resolve path:', error);
+      return { valid: false, relationChain: [], errors: ['resolvePath error'] };
+    }
+  }
+
+  /**
    * Check if a relation exists
    */
   validateRelation<T extends ObjectLiteral>(

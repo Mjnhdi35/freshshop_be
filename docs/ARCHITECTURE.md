@@ -1,4 +1,11 @@
-# 🏗️ Architecture Documentation
+# 🏗️ Tài liệu Kiến trúc (Architecture)
+
+Lưu ý nhanh (tiếng Việt):
+
+- Cốt lõi là cách tiếp cận meta-driven (reflection runtime) để tự động phát hiện khả năng truy vấn trên entity mà không cần thêm decorator tùy biến.
+- Áp dụng SOLID: mỗi lớp/mô-đun 1 nhiệm vụ (SRP). Reflection → QueryBuilder → BaseService xếp lớp rõ ràng.
+- Tối ưu chi phí: giới hạn pool DB nhỏ, TTL/limit qua ENV, HTTP compression, cache 2 tầng (LRU memory + Redis TTL/nén/size limit), log lỗi có cấu trúc, metrics middleware.
+- Interceptor chỉ chuẩn hóa response. Retry/metrics chuyển sang middleware/dịch vụ quan trắc.
 
 ## Overview
 

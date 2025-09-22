@@ -16,10 +16,10 @@ export class User extends BaseEntity {
   @Exclude()
   password: string;
 
-  @Column({ nullable: true, unique: true })
+  @Column({ name: 'google_id', nullable: true, unique: true })
   googleId?: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'display_name', nullable: true })
   displayName?: string;
 
   @Column({ nullable: true })

@@ -1,6 +1,6 @@
-# 📚 API Documentation
+# 📚 Tài liệu API (tiếng Việt)
 
-## 🚀 Quick Start
+## 🚀 Bắt đầu nhanh
 
 ### Base URL
 
@@ -8,17 +8,17 @@
 http://localhost:4000
 ```
 
-### Authentication
+### Xác thực
 
-All protected endpoints require JWT token in Authorization header:
+Các endpoint cần bảo vệ yêu cầu JWT trong header Authorization:
 
 ```
 Authorization: Bearer <access_token>
 ```
 
-## 🔐 Authentication Endpoints
+## 🔐 Endpoint Xác thực
 
-### Register
+### Đăng ký (Register)
 
 ```http
 POST /auth/register
@@ -31,7 +31,7 @@ Content-Type: application/json
 }
 ```
 
-**Response:**
+**Phản hồi (chuẩn hóa bởi ResponseInterceptor):**
 
 ```json
 {
@@ -48,7 +48,7 @@ Content-Type: application/json
 }
 ```
 
-### Login
+### Đăng nhập (Login)
 
 ```http
 POST /auth/login
@@ -60,7 +60,7 @@ Content-Type: application/json
 }
 ```
 
-### Refresh Token
+### Làm mới token (Refresh)
 
 ```http
 POST /auth/refresh
@@ -71,7 +71,7 @@ Content-Type: application/json
 }
 ```
 
-### Logout
+### Đăng xuất (Logout)
 
 ```http
 POST /auth/logout
@@ -90,16 +90,16 @@ GET /auth/google
 GET /auth/google/callback
 ```
 
-## 👥 Users Endpoints
+## 👥 Endpoint Users
 
-### Get All Users (with Advanced Querying)
+### Lấy danh sách Users (truy vấn nâng cao)
 
 ```http
 GET /users?page=1&limit=20&search=john&sort=createdAt:DESC&filter[role]=admin
 Authorization: Bearer <access_token>
 ```
 
-**Query Parameters:**
+**Tham số truy vấn:**
 
 - `page` - Page number (default: 1)
 - `limit` - Items per page (default: 20, max: 100)
@@ -108,7 +108,7 @@ Authorization: Bearer <access_token>
 - `filter[field]` - Filter by field value
 - `filter[field][operator]` - Filter operator (eq, ne, gt, gte, lt, lte, in, nin, like, ilike, between, isNull, isNotNull, contains, startsWith, endsWith)
 
-**Example Queries:**
+**Ví dụ:**
 
 ```http
 # Search users
@@ -130,7 +130,7 @@ GET /users?sort=createdAt:DESC
 GET /users?page=2&limit=10
 ```
 
-**Response:**
+**Phản hồi:**
 
 ```json
 {

@@ -10,6 +10,10 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HealthModule } from './health/health.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { RequestMetricsMiddleware } from './common/interceptors/request-metrics.middleware';
+import { APP_FILTER } from '@nestjs/core';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 @Module({
   imports: [
@@ -46,6 +50,14 @@ import { APP_GUARD } from '@nestjs/core';
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
     },
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestMetricsMiddleware).forRoutes('*');
+  }
+}

@@ -61,7 +61,7 @@ export class TokenService {
 
   async validateAccessToken(token: string): Promise<JwtPayload | null> {
     try {
-      const payload = this.jwtService.verify(token) as JwtPayload;
+      const payload = this.jwtService.verify(token);
       return payload;
     } catch (error) {
       this.logger.error('❌ Invalid access token:', error);
@@ -71,7 +71,7 @@ export class TokenService {
 
   async validateRefreshToken(token: string): Promise<JwtPayload | null> {
     try {
-      const payload = this.jwtService.verify(token) as JwtPayload;
+      const payload = this.jwtService.verify(token);
 
       const isTokenValid = await this.isRefreshTokenValid(payload.sub, token);
 

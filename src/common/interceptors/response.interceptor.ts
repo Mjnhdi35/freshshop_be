@@ -134,7 +134,13 @@ export class ResponseInterceptor<T>
     return (
       data !== null &&
       typeof data === 'object' &&
-      ('error' in data || 'message' in data) &&
+      // Treat as error only if explicit error indicators are present
+      (('error' in data &&
+        typeof (data as any).error === 'string' &&
+        (data as any).error.length > 0) ||
+        ('errors' in data &&
+          Array.isArray((data as any).errors) &&
+          (data as any).errors.length > 0)) &&
       !('data' in data) &&
       !('success' in data)
     );

@@ -27,6 +27,7 @@ export interface IColumnMetadata {
   isNullable: boolean;
   isPrimary: boolean;
   isUnique: boolean;
+  dbName?: string;
   defaultValue?: any;
   length?: number;
   precision?: number;
@@ -140,6 +141,142 @@ export class AdvancedMetadataService extends BaseMetadataService {
   }
 
   /**
+   * Mapping field (property) -> column DB name và kiểu chuẩn hóa
+   */
+  getFieldColumnMap<T>(
+    entity: Type<T>,
+  ): Record<string, { dbName: string; type: string }> {
+    const meta = this.getEntityMetadata(entity);
+    const map: Record<string, { dbName: string; type: string }> = {};
+    meta.columns.forEach((c) => {
+      map[c.name] = {
+        dbName: c.dbName || this.toSnakeCase(c.name),
+        type: this.normalizeType(c.type),
+      };
+    });
+    return map;
+  }
+
+  /**
+   * Danh sách trường có index/unique index
+   */
+  getIndexedFields<T>(entity: Type<T>): {
+    indexed: string[];
+    unique: string[];
+  } {
+    const meta = this.getEntityMetadata(entity);
+    const indexed = new Set<string>();
+    const unique = new Set<string>();
+    meta.indices.forEach((idx) => {
+      idx.columns.forEach((col) => indexed.add(col));
+      if (idx.unique) {
+        idx.columns.forEach((col) => unique.add(col));
+      }
+    });
+    return { indexed: Array.from(indexed), unique: Array.from(unique) };
+  }
+
+  /**
+   * Bản đồ quan hệ: relation name -> info
+   */
+  getRelationsMap<T>(entity: Type<T>): Record<string, IRelationMetadata> {
+    const meta = this.getEntityMetadata(entity);
+    return meta.relations.reduce(
+      (acc, r) => {
+        acc[r.name] = r;
+        return acc;
+      },
+      {} as Record<string, IRelationMetadata>,
+    );
+  }
+
+  /**
+   * Kiểm tra đường dẫn lồng nhau: "profile.address.city"
+   * Trả về chain quan hệ và trường cuối (nếu có)
+   */
+  resolvePath<T>(
+    entity: Type<T>,
+    path: string,
+  ): {
+    valid: boolean;
+    relationChain: string[];
+    finalField?: string;
+    errors?: string[];
+  } {
+    const parts = path.split('.').filter(Boolean);
+    const errors: string[] = [];
+    let current: Type<any> = entity;
+    const chain: string[] = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const relMap = this.getRelationsMap(current);
+      const rel = relMap[part];
+      if (rel) {
+        chain.push(part);
+        // best-effort: we only keep target name
+        // In runtime, upper layer có thể map sang class thực tế.
+        // Ở đây, chỉ xác nhận tồn tại quan hệ.
+        continue;
+      }
+
+      // Không phải quan hệ: coi như field cuối
+      const fieldMap = this.getFieldColumnMap(current);
+      if (fieldMap[part]) {
+        const isLast = i === parts.length - 1;
+        if (!isLast) {
+          errors.push(
+            `Field '${part}' không phải quan hệ nên không thể đi sâu tiếp`,
+          );
+          return {
+            valid: false,
+            relationChain: chain,
+            finalField: part,
+            errors,
+          };
+        }
+        return {
+          valid: errors.length === 0,
+          relationChain: chain,
+          finalField: part,
+          errors: errors.length ? errors : undefined,
+        };
+      }
+
+      errors.push(
+        `Không tìm thấy quan hệ/field '${part}' trên ${current.name}`,
+      );
+      return { valid: false, relationChain: chain, errors };
+    }
+
+    return {
+      valid: errors.length === 0,
+      relationChain: chain,
+      errors: errors.length ? errors : undefined,
+    };
+  }
+
+  /** Kiểu dữ liệu chuẩn hóa */
+  normalizeType(type: string): string {
+    const t = type.toLowerCase();
+    if (t.includes('character varying')) return 'varchar';
+    if (t.includes('timestamp')) return 'timestamp';
+    if (t.includes('datetime')) return 'datetime';
+    if (t.includes('decimal') || t.includes('numeric')) return 'decimal';
+    if (t.includes('int')) return 'int';
+    if (t === 'bool') return 'boolean';
+    return t;
+  }
+
+  /** snake_case từ camelCase */
+  private toSnakeCase(name: string): string {
+    return name
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/\s+/g, '_')
+      .toLowerCase();
+  }
+
+  /**
    * Runtime validation of field access
    */
   validateFieldAccess<T>(
@@ -243,6 +380,7 @@ export class AdvancedMetadataService extends BaseMetadataService {
             isNullable: column.isNullable || false,
             isPrimary: column.isPrimary || false,
             isUnique: column.isUnique || false,
+            dbName: column.databaseName || column.propertyName || name,
             defaultValue: column.default,
             length: column.length,
             precision: column.precision,

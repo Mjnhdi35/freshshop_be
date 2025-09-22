@@ -76,7 +76,10 @@ export class UsersService extends BaseService<User> {
 
   async findByEmail(email: string): Promise<User | null> {
     try {
-      const user = await this.userRepository.findOne({ where: { email } });
+      const user = await this.userRepository.findOne({
+        where: { email },
+        withDeleted: false,
+      });
       return user;
     } catch (error) {
       this.logger.error(`❌ Failed to find user by email ${email}:`, error);

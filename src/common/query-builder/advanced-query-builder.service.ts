@@ -10,7 +10,6 @@ import {
   PaginatedResult,
   QueryResult,
   AdvancedQueryOptions,
-  QueryContext,
   QueryExecutionOptions,
 } from '../interfaces/pagination.interface';
 import { ReflectionService } from '../reflection/reflection.service';
@@ -30,7 +29,7 @@ export class AdvancedQueryBuilderService {
     options: AdvancedQueryOptions,
     executionOptions?: QueryExecutionOptions,
   ): Promise<SelectQueryBuilder<T>> {
-    const queryBuilder = repository.createQueryBuilder();
+    const queryBuilder = repository.createQueryBuilder('entity');
 
     // Apply select fields
     if (options.select?.fields?.length) {
@@ -195,15 +194,15 @@ export class AdvancedQueryBuilderService {
     queryBuilder: SelectQueryBuilder<T>,
     relations: RelationOptions,
   ): void {
-    if (relations.relations?.length) {
-      relations.relations.forEach((relation) => {
-        if (relations.eager) {
-          queryBuilder.leftJoinAndSelect(`entity.${relation}`, relation);
-        } else {
-          queryBuilder.leftJoin(`entity.${relation}`, relation);
-        }
-      });
-    }
+    if (!relations.relations?.length) return;
+
+    relations.relations.forEach((path) => {
+      this.ensureJoinsForPath(
+        queryBuilder,
+        path,
+        relations.eager === true ? true : false,
+      );
+    });
   }
 
   /**
@@ -218,69 +217,118 @@ export class AdvancedQueryBuilderService {
       const { field, operator, value, values } = filter;
       const paramName = `filter_${index}`;
 
-      // Validate field is filterable using runtime reflection
-      if (!this.reflectionService.validateField(entity, field, 'filter')) {
-        this.logger.warn(
-          `Field ${field} is not filterable for entity ${entity.name}`,
+      // Hỗ trợ field theo path lồng nhau: relation1.relation2.field
+      let targetAlias = 'entity';
+      let targetField = field;
+      if (field.includes('.')) {
+        const resolved = this.reflectionService.resolvePath(entity, field);
+        if (!resolved.valid || !resolved.finalField) {
+          this.logger.warn(`Invalid filter path: ${field}`);
+          return;
+        }
+        // Tạo join cho phần quan hệ, trả về alias cuối
+        const relationPath = field.split('.').slice(0, -1).join('.');
+        targetAlias = this.ensureJoinsForPath(
+          queryBuilder,
+          relationPath,
+          false,
         );
-        return;
+        targetField = resolved.finalField;
+      } else {
+        // Validate field là filterable ở entity gốc
+        if (!this.reflectionService.validateField(entity, field, 'filter')) {
+          this.logger.warn(
+            `Field ${field} is not filterable for entity ${entity.name}`,
+          );
+          return;
+        }
       }
 
       switch (operator) {
         case 'eq':
-          queryBuilder.andWhere(`entity.${field} = :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} = :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'ne':
-          queryBuilder.andWhere(`entity.${field} != :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} != :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'gt':
-          queryBuilder.andWhere(`entity.${field} > :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} > :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'gte':
-          queryBuilder.andWhere(`entity.${field} >= :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} >= :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'lt':
-          queryBuilder.andWhere(`entity.${field} < :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} < :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'lte':
-          queryBuilder.andWhere(`entity.${field} <= :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} <= :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'in':
-          queryBuilder.andWhere(`entity.${field} IN (:...${paramName})`, {
-            [paramName]: values || [value],
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} IN (:...${paramName})`,
+            {
+              [paramName]: values || [value],
+            },
+          );
           break;
         case 'nin':
-          queryBuilder.andWhere(`entity.${field} NOT IN (:...${paramName})`, {
-            [paramName]: values || [value],
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} NOT IN (:...${paramName})`,
+            {
+              [paramName]: values || [value],
+            },
+          );
           break;
         case 'like':
-          queryBuilder.andWhere(`entity.${field} LIKE :${paramName}`, {
-            [paramName]: `%${value}%`,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} LIKE :${paramName}`,
+            {
+              [paramName]: `%${value}%`,
+            },
+          );
           break;
         case 'ilike':
-          queryBuilder.andWhere(`entity.${field} ILIKE :${paramName}`, {
-            [paramName]: `%${value}%`,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} ILIKE :${paramName}`,
+            {
+              [paramName]: `%${value}%`,
+            },
+          );
           break;
         case 'between':
           if (values && values.length === 2) {
             queryBuilder.andWhere(
-              `entity.${field} BETWEEN :${paramName}_start AND :${paramName}_end`,
+              `${targetAlias}.${targetField} BETWEEN :${paramName}_start AND :${paramName}_end`,
               {
                 [`${paramName}_start`]: values[0],
                 [`${paramName}_end`]: values[1],
@@ -289,35 +337,47 @@ export class AdvancedQueryBuilderService {
           }
           break;
         case 'isNull':
-          queryBuilder.andWhere(`entity.${field} IS NULL`);
+          queryBuilder.andWhere(`${targetAlias}.${targetField} IS NULL`);
           break;
         case 'isNotNull':
-          queryBuilder.andWhere(`entity.${field} IS NOT NULL`);
+          queryBuilder.andWhere(`${targetAlias}.${targetField} IS NOT NULL`);
           break;
         case 'contains':
-          queryBuilder.andWhere(`entity.${field} ILIKE :${paramName}`, {
-            [paramName]: `%${value}%`,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} ILIKE :${paramName}`,
+            {
+              [paramName]: `%${value}%`,
+            },
+          );
           break;
         case 'startsWith':
-          queryBuilder.andWhere(`entity.${field} ILIKE :${paramName}`, {
-            [paramName]: `${value}%`,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} ILIKE :${paramName}`,
+            {
+              [paramName]: `${value}%`,
+            },
+          );
           break;
         case 'endsWith':
-          queryBuilder.andWhere(`entity.${field} ILIKE :${paramName}`, {
-            [paramName]: `%${value}`,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} ILIKE :${paramName}`,
+            {
+              [paramName]: `%${value}`,
+            },
+          );
           break;
         case 'regex':
-          queryBuilder.andWhere(`entity.${field} ~ :${paramName}`, {
-            [paramName]: value,
-          });
+          queryBuilder.andWhere(
+            `${targetAlias}.${targetField} ~ :${paramName}`,
+            {
+              [paramName]: value,
+            },
+          );
           break;
         case 'dateRange':
           if (values && values.length === 2) {
             queryBuilder.andWhere(
-              `entity.${field} BETWEEN :${paramName}_start AND :${paramName}_end`,
+              `${targetAlias}.${targetField} BETWEEN :${paramName}_start AND :${paramName}_end`,
               {
                 [`${paramName}_start`]: values[0],
                 [`${paramName}_end`]: values[1],
@@ -348,15 +408,24 @@ export class AdvancedQueryBuilderService {
 
     if (!query || !fields.length) return;
 
-    const searchConditions = fields
-      .filter((field) =>
-        this.reflectionService.validateField(entity, field, 'search'),
-      )
-      .map((field) => {
-        const searchValue = mode === 'exact' ? query : `%${query}%`;
-        const operator = caseSensitive ? 'LIKE' : 'ILIKE';
-        return `entity.${field} ${operator} :searchQuery`;
-      });
+    const searchConditions: string[] = [];
+    fields.forEach((field) => {
+      let alias = 'entity';
+      let col = field;
+      if (field.includes('.')) {
+        const resolved = this.reflectionService.resolvePath(entity, field);
+        if (!resolved.valid || !resolved.finalField) return;
+        const relationPath = field.split('.').slice(0, -1).join('.');
+        alias = this.ensureJoinsForPath(queryBuilder, relationPath, false);
+        col = resolved.finalField;
+      } else if (
+        !this.reflectionService.validateField(entity, field, 'search')
+      ) {
+        return;
+      }
+      const operator = caseSensitive ? 'LIKE' : 'ILIKE';
+      searchConditions.push(`${alias}.${col} ${operator} :searchQuery`);
+    });
 
     if (searchConditions.length > 0) {
       queryBuilder.andWhere(`(${searchConditions.join(' OR ')})`, {
@@ -374,13 +443,24 @@ export class AdvancedQueryBuilderService {
     sort: SortOptions[],
   ): void {
     sort.forEach(({ field, direction }) => {
-      if (this.reflectionService.validateField(entity, field, 'sort')) {
-        queryBuilder.addOrderBy(`entity.${field}`, direction);
-      } else {
+      let alias = 'entity';
+      let col = field;
+      if (field.includes('.')) {
+        const resolved = this.reflectionService.resolvePath(entity, field);
+        if (!resolved.valid || !resolved.finalField) {
+          this.logger.warn(`Invalid sort path: ${field}`);
+          return;
+        }
+        const relationPath = field.split('.').slice(0, -1).join('.');
+        alias = this.ensureJoinsForPath(queryBuilder, relationPath, false);
+        col = resolved.finalField;
+      } else if (!this.reflectionService.validateField(entity, field, 'sort')) {
         this.logger.warn(
           `Field ${field} is not sortable for entity ${entity.name}`,
         );
+        return;
       }
+      queryBuilder.addOrderBy(`${alias}.${col}`, direction);
     });
   }
 
@@ -407,30 +487,39 @@ export class AdvancedQueryBuilderService {
     having.forEach((condition, index) => {
       const { field, operator, value } = condition;
       const paramName = `having_${index}`;
+      let alias = 'entity';
+      let col = field;
+      if (field.includes('.')) {
+        const resolved = this.reflectionService.resolvePath(entity, field);
+        if (!resolved.valid || !resolved.finalField) return;
+        const relationPath = field.split('.').slice(0, -1).join('.');
+        alias = this.ensureJoinsForPath(queryBuilder, relationPath, false);
+        col = resolved.finalField;
+      }
 
       switch (operator) {
         case 'eq':
-          queryBuilder.having(`entity.${field} = :${paramName}`, {
+          queryBuilder.having(`${alias}.${col} = :${paramName}`, {
             [paramName]: value,
           });
           break;
         case 'gt':
-          queryBuilder.having(`entity.${field} > :${paramName}`, {
+          queryBuilder.having(`${alias}.${col} > :${paramName}`, {
             [paramName]: value,
           });
           break;
         case 'gte':
-          queryBuilder.having(`entity.${field} >= :${paramName}`, {
+          queryBuilder.having(`${alias}.${col} >= :${paramName}`, {
             [paramName]: value,
           });
           break;
         case 'lt':
-          queryBuilder.having(`entity.${field} < :${paramName}`, {
+          queryBuilder.having(`${alias}.${col} < :${paramName}`, {
             [paramName]: value,
           });
           break;
         case 'lte':
-          queryBuilder.having(`entity.${field} <= :${paramName}`, {
+          queryBuilder.having(`${alias}.${col} <= :${paramName}`, {
             [paramName]: value,
           });
           break;
@@ -438,5 +527,32 @@ export class AdvancedQueryBuilderService {
           this.logger.warn(`Unsupported having operator: ${operator}`);
       }
     });
+  }
+
+  /**
+   * Đảm bảo đã join đầy đủ cho path lồng nhau, trả về alias cuối cùng
+   * Ví dụ: "profile.address" -> join entity.profile AS profile, profile.address AS profile_address
+   */
+  private ensureJoinsForPath<T extends ObjectLiteral>(
+    queryBuilder: SelectQueryBuilder<T>,
+    path: string,
+    select: boolean,
+  ): string {
+    const parts = path.split('.').filter(Boolean);
+    let currentAlias = 'entity';
+    let builtPath = '';
+    parts.forEach((part, idx) => {
+      const nextAlias = builtPath ? `${builtPath}_${part}` : part;
+      const joinPath = `${currentAlias}.${part}`;
+      // tránh join trùng: TypeORM không expose check dễ, dùng addOrderBy trick không hợp lý; ta thử catch lỗi join trùng bằng try-catch? tránh rủi ro, cứ leftJoin với alias duy nhất
+      if (select) {
+        queryBuilder.leftJoinAndSelect(joinPath, nextAlias);
+      } else {
+        queryBuilder.leftJoin(joinPath, nextAlias);
+      }
+      currentAlias = nextAlias;
+      builtPath = nextAlias;
+    });
+    return currentAlias || 'entity';
   }
 }
